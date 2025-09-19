@@ -10,8 +10,10 @@ const express = require("express");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const cors = require("cors");
-const path = require("path");
 const bodyParser = require("body-parser");
+
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
 
 // ========================
 // Models
@@ -28,20 +30,44 @@ app.use(bodyParser.json());
 app.use(cors());
 
 // ========================
-// Multer Config (Image Upload)
+// Cloudinary Config
 // ========================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ========================
+// Multer + Cloudinary Storage Config
+// ========================
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "uploads",
+    allowed_formats: ["jpg", "jpeg", "png"],
   },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
 });
 const upload = multer({ storage });
 
-// Serve uploaded images
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// ========================
+// Cloudinary Image Upload Route
+// ========================
+app.post("/upload", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file provided." });
+    }
+    // Cloudinary returns the uploaded image URL in req.file.path
+    res.status(200).json({
+      message: "Image uploaded successfully!",
+      imageUrl: req.file.path,
+    });
+  } catch (err) {
+    console.error("Error uploading image to Cloudinary:", err);
+    res.status(500).json({ error: "Image upload failed. Check server logs." });
+  }
+});
 
 // ========================
 // Health Check Route
@@ -51,10 +77,7 @@ app.get("/", (req, res) => res.send("Server OK"));
 // ========================
 // MongoDB Connection
 // ========================
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGO_URI)
 .then(() => console.log("✅ MongoDB Connected"))
 .catch(err => console.error("❌ MongoDB Error:", err));
 
@@ -73,20 +96,23 @@ app.get("/items", async (req, res) => {
 
 app.post("/items", upload.single("image"), async (req, res) => {
   try {
-    const newItem = new Item({
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file provided." });
+    }
+
+    const newItem = await Item.create({
       seller: req.body.seller,
       address: req.body.address,
       contact: req.body.contact,
       category: req.body.category,
       description: req.body.description,
       fields: req.body.fields ? JSON.parse(req.body.fields) : {},
-      imageUrl: req.file ? `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}` : ""
+      imageUrl: req.file.path, // Use the path from the uploaded file
     });
-    await newItem.save();
-    res.json(newItem);
+    res.status(201).json(newItem);
   } catch (err) {
     console.error("Error saving item:", err);
-    res.status(500).json({ error: "Failed to save item. Check MongoDB connection." });
+    res.status(500).json({ error: "Failed to save item. Check logs for details." });
   }
 });
 
