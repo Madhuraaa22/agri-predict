@@ -140,6 +140,13 @@ app.post("/api/orders", async (req, res) => {
   }
 });
 
+app.post('/upload', upload.single('image'), (req, res) => {
+  console.log('Request body:', req.body);
+  console.log('Request file:', req.file);
+  res.send('ok');
+});
+
+
 // ========================
 // Start Server
 // ========================
